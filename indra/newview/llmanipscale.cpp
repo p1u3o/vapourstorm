@@ -54,6 +54,7 @@
 #include "llviewerobject.h"
 #include "llviewerregion.h"
 #include "llviewerwindow.h"
+#include "message.h"
 #include "llhudrender.h"
 #include "llworld.h"
 #include "v2math.h"
@@ -358,6 +359,46 @@ bool LLManipScale::handleMouseDownOnPart( S32 x, S32 y, MASK mask )
     LLSelectMgr::getInstance()->enableSilhouette(false);
     mManipPart = (EManipPart)hit_part;
 
+    // [VapourStorm] If we are stretching a linkset, we MUST select all children
+    // so their state is saved and they are updated correctly on the server.
+    if (gSavedSettings.getBOOL("VapourStormScaleLinksetsNonUniform") && 
+        (LL_FACE_MIN <= mManipPart && mManipPart <= LL_FACE_MAX))
+    {
+        std::vector<LLViewerObject*> roots;
+        for (LLObjectSelection::iterator iter = mObjectSelection->begin();
+             iter != mObjectSelection->end(); iter++)
+        {
+            LLSelectNode* node = *iter;
+            LLViewerObject* object = node->getObject();
+            if (object && object->isRootEdit() && !node->mIndividualSelection)
+            {
+                roots.push_back(object);
+            }
+        }
+        for (LLViewerObject* root : roots)
+        {
+            LLSelectMgr::getInstance()->selectObjectAndFamily(root, true);
+        }
+
+        // We must notify the simulator that we've selected these children,
+        // otherwise it will reject the MultipleObjectUpdate packets for them later.
+        for (LLObjectSelection::iterator iter = mObjectSelection->begin();
+             iter != mObjectSelection->end(); iter++)
+        {
+            LLViewerObject* object = (*iter)->getObject();
+            if (object && !object->isRootEdit())
+            {
+                gMessageSystem->newMessageFast(_PREHASH_ObjectSelect);
+                gMessageSystem->nextBlockFast(_PREHASH_AgentData);
+                gMessageSystem->addUUIDFast(_PREHASH_AgentID, gAgent.getID());
+                gMessageSystem->addUUIDFast(_PREHASH_SessionID, gAgent.getSessionID());
+                gMessageSystem->nextBlockFast(_PREHASH_ObjectData);
+                gMessageSystem->addU32Fast(_PREHASH_ObjectLocalID, object->getLocalID());
+                gMessageSystem->sendReliable(object->getRegion()->getHost());
+            }
+        }
+    }
+
     LLBBox bbox = LLSelectMgr::getInstance()->getBBoxOfSelection();
     LLVector3 box_center_agent = bbox.getCenterAgent();
     LLVector3 box_corner_agent = bbox.localToAgent( unitVectorToLocalBBoxExtent( partToUnitVector( mManipPart ), bbox ) );
@@ -506,8 +547,9 @@ void LLManipScale::highlightManipulators(S32 x, S32 y)
         mManipulatorVertices[numManips++] = LLVector4(max.mV[VX], max.mV[VY], min.mV[VZ], 1.f);
         mManipulatorVertices[numManips++] = LLVector4(max.mV[VX], max.mV[VY], max.mV[VZ], 1.f);
 
-        // 1-D highlights are applicable iff one object is selected
-        if( mObjectSelection->getObjectCount() == 1 )
+        // 1-D highlights are applicable iff one object is selected (or when using VapourStorm stretch for linksets)
+        if ( mObjectSelection->getSelectType() != SELECT_TYPE_ATTACHMENT &&
+             (mObjectSelection->getObjectCount() == 1 || gSavedSettings.getBOOL("VapourStormScaleLinksetsNonUniform")) )
         {
             // face centers
             mManipulatorVertices[numManips++] = LLVector4(ctr.mV[VX], ctr.mV[VY], max.mV[VZ], 1.f);
@@ -527,7 +569,7 @@ void LLManipScale::highlightManipulators(S32 x, S32 y)
             projectedVertex = projectedVertex * (1.f / projectedVertex.mV[VW]);
 
             ManipulatorHandle* projManipulator = new ManipulatorHandle(LLVector3(projectedVertex.mV[VX], projectedVertex.mV[VY],
-                projectedVertex.mV[VZ]), MANIPULATOR_IDS[i], (i < 7) ? SCALE_MANIP_CORNER : SCALE_MANIP_FACE);
+                projectedVertex.mV[VZ]), MANIPULATOR_IDS[i], (i < 8) ? SCALE_MANIP_CORNER : SCALE_MANIP_FACE);
             mProjectedManipulators.insert(projManipulator);
         }
 
@@ -577,9 +619,10 @@ void LLManipScale::highlightManipulators(S32 x, S32 y)
 
 void LLManipScale::renderFaces( const LLBBox& bbox )
 {
-    // Don't bother to render the drag handles for 1-D scaling if
-    // more than one object is selected or if it is an attachment
-    if ( mObjectSelection->getObjectCount() > 1 )
+    // Don't bother to render the drag handles for 1-D scaling if it is an attachment
+    // or if we have multiple objects selected and the VapourStorm feature is disabled
+    if ( mObjectSelection->getSelectType() == SELECT_TYPE_ATTACHMENT || 
+         (mObjectSelection->getObjectCount() > 1 && !gSavedSettings.getBOOL("VapourStormScaleLinksetsNonUniform")) )
     {
         return;
     }
@@ -1184,7 +1227,10 @@ void LLManipScale::sendUpdates( bool send_position_update, bool send_scale_updat
         mLastUpdateFlags = update_flags;
 
         // enforce minimum update delay and don't stream updates on sub-object selections
-        if( elapsed_time > UPDATE_DELAY && !gSavedSettings.getBOOL("EditLinkedParts") )
+        // Ensure we don't stream updates during a linkset stretch to avoid flooding the undo buffer
+        bool non_uniform_linkset = gSavedSettings.getBOOL("VapourStormScaleLinksetsNonUniform") && (update_flags & UPD_SCALE) && !(update_flags & UPD_UNIFORM);
+
+        if( elapsed_time > UPDATE_DELAY && !gSavedSettings.getBOOL("EditLinkedParts") && !non_uniform_linkset )
         {
             LLSelectMgr::getInstance()->sendMultipleUpdate( update_flags );
             update_timer.reset();
@@ -1204,6 +1250,7 @@ void LLManipScale::stretchFace( const LLVector3& drag_start_agent, const LLVecto
 {
     LLVector3 drag_start_center_agent = gAgent.getPosAgentFromGlobal(mDragStartCenterGlobal);
 
+    // Pass 1: Roots and individually selected objects
     for (LLObjectSelection::iterator iter = mObjectSelection->begin();
          iter != mObjectSelection->end(); iter++)
     {
@@ -1212,7 +1259,7 @@ void LLManipScale::stretchFace( const LLVector3& drag_start_agent, const LLVecto
         LLViewerObject *root_object = (cur == NULL) ? NULL : cur->getRootEdit();
         if( cur->permModify() && cur->permMove() && !cur->isPermanentEnforced() &&
             ((root_object == NULL) || !root_object->isPermanentEnforced()) &&
-            !cur->isAvatar() )
+            !cur->isAvatar() && (cur->isRootEdit() || selectNode->mIndividualSelection) )
         {
             LLBBox cur_bbox         = cur->getBoundingBoxAgent();
             LLVector3 start_local   = cur_bbox.agentToLocal( drag_start_agent );
@@ -1276,14 +1323,15 @@ void LLManipScale::stretchFace( const LLVector3& drag_start_agent, const LLVecto
                 }
                 delta_pos = cur->getPositionEdit() - cur_pos;
             }
+
             if (cur->isRootEdit() && selectNode->mIndividualSelection)
             {
                 // counter-translate child objects if we are moving the root as an individual
                 LLViewerObject::const_child_list_t& child_list = cur->getChildren();
-                for (LLViewerObject::child_list_t::const_iterator iter = child_list.begin();
-                     iter != child_list.end(); iter++)
+                for (LLViewerObject::child_list_t::const_iterator child_iter = child_list.begin();
+                     child_iter != child_list.end(); child_iter++)
                 {
-                    LLViewerObject* childp = *iter;
+                    LLViewerObject* childp = *child_iter;
                     if (!getUniform())
                     {
                         LLVector3 child_pos = childp->getPosition() - (delta_pos * ~cur->getRotationEdit());
@@ -1292,6 +1340,71 @@ void LLManipScale::stretchFace( const LLVector3& drag_start_agent, const LLVecto
                     }
                 }
             }
+        }
+    }
+
+    // Pass 2: Child objects of un-individually selected linksets
+    for (LLObjectSelection::iterator iter = mObjectSelection->begin();
+         iter != mObjectSelection->end(); iter++)
+    {
+        LLSelectNode* selectNode = *iter;
+        LLViewerObject*cur = selectNode->getObject();
+        LLViewerObject *root_object = (cur == NULL) ? NULL : cur->getRootEdit();
+        if( cur->permModify() && cur->permMove() && !cur->isPermanentEnforced() &&
+            ((root_object == NULL) || !root_object->isPermanentEnforced()) &&
+            !cur->isAvatar() && !cur->isRootEdit() )
+        {
+            // Find root's scale factors
+            LLVector3 root_scale_vec(1.f, 1.f, 1.f);
+            if (root_object)
+            {
+                for (LLObjectSelection::iterator root_iter = mObjectSelection->begin();
+                     root_iter != mObjectSelection->end(); root_iter++)
+                {
+                    LLSelectNode* rootNode = *root_iter;
+                    if (rootNode->getObject() == root_object)
+                    {
+                        LLVector3 new_scale = root_object->getScale();
+                        LLVector3 old_scale = rootNode->mSavedScale;
+                        if (old_scale.mV[VX] > 0.0001f) root_scale_vec.mV[VX] = new_scale.mV[VX] / old_scale.mV[VX];
+                        if (old_scale.mV[VY] > 0.0001f) root_scale_vec.mV[VY] = new_scale.mV[VY] / old_scale.mV[VY];
+                        if (old_scale.mV[VZ] > 0.0001f) root_scale_vec.mV[VZ] = new_scale.mV[VZ] / old_scale.mV[VZ];
+                        break;
+                    }
+                }
+            }
+
+            // Scale the child's position by the root's stretch factors
+            LLVector3 new_local_pos = selectNode->mSavedPositionLocal;
+            new_local_pos.mV[VX] *= root_scale_vec.mV[VX];
+            new_local_pos.mV[VY] *= root_scale_vec.mV[VY];
+            new_local_pos.mV[VZ] *= root_scale_vec.mV[VZ];
+            cur->setPosition(new_local_pos);
+
+            // Find child's local scale by projecting local axes
+            LLQuaternion child_rel_rot = cur->getRotationEdit() * ~root_object->getRotationEdit();
+            LLVector3 child_x = LLVector3(1,0,0) * child_rel_rot;
+            LLVector3 child_y = LLVector3(0,1,0) * child_rel_rot;
+            LLVector3 child_z = LLVector3(0,0,1) * child_rel_rot;
+
+            child_x.mV[VX] *= root_scale_vec.mV[VX]; child_x.mV[VY] *= root_scale_vec.mV[VY]; child_x.mV[VZ] *= root_scale_vec.mV[VZ];
+            child_y.mV[VX] *= root_scale_vec.mV[VX]; child_y.mV[VY] *= root_scale_vec.mV[VY]; child_y.mV[VZ] *= root_scale_vec.mV[VZ];
+            child_z.mV[VX] *= root_scale_vec.mV[VX]; child_z.mV[VY] *= root_scale_vec.mV[VY]; child_z.mV[VZ] *= root_scale_vec.mV[VZ];
+
+            LLVector3 child_scale_factor(child_x.length(), child_y.length(), child_z.length());
+
+            LLVector3 new_scale = selectNode->mSavedScale;
+            new_scale.mV[VX] *= child_scale_factor.mV[VX];
+            new_scale.mV[VY] *= child_scale_factor.mV[VY];
+            new_scale.mV[VZ] *= child_scale_factor.mV[VZ];
+            
+            // clamp
+            new_scale.mV[VX] = llclamp(new_scale.mV[VX], LLWorld::getInstance()->getRegionMinPrimScale(), get_default_max_prim_scale(LLPickInfo::isFlora(cur)));
+            new_scale.mV[VY] = llclamp(new_scale.mV[VY], LLWorld::getInstance()->getRegionMinPrimScale(), get_default_max_prim_scale(LLPickInfo::isFlora(cur)));
+            new_scale.mV[VZ] = llclamp(new_scale.mV[VZ], LLWorld::getInstance()->getRegionMinPrimScale(), get_default_max_prim_scale(LLPickInfo::isFlora(cur)));
+
+            cur->setScale(new_scale, false);
+            rebuild(cur);
         }
     }
 }

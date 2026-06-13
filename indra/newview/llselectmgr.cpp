@@ -4893,8 +4893,13 @@ void LLSelectMgr::packDuplicateOnRayHead(void *user_data)
 void LLSelectMgr::sendMultipleUpdate(U32 type)
 {
     if (type == UPD_NONE) return;
+
+    // If we are doing a non-uniform scale on a linkset, we need to send individual updates for all prims
+    // to preserve the custom offsets calculated by the viewer.
+    bool non_uniform_linkset = gSavedSettings.getBOOL("VapourStormScaleLinksetsNonUniform") && (type & UPD_SCALE) && !(type & UPD_UNIFORM);
+
     // send individual updates when selecting textures or individual objects
-    ESendType send_type = (!gSavedSettings.getBOOL("EditLinkedParts") && !getTEMode()) ? SEND_ONLY_ROOTS : SEND_ROOTS_FIRST;
+    ESendType send_type = (!gSavedSettings.getBOOL("EditLinkedParts") && !getTEMode() && !non_uniform_linkset) ? SEND_ONLY_ROOTS : SEND_ROOTS_FIRST;
     if (send_type == SEND_ONLY_ROOTS)
     {
         // tell simulator to apply to whole linked sets

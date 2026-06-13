@@ -1957,5 +1957,29 @@
        width="200"
        follows="left|top" />
     </panel>
+
+    <panel
+     border="true"
+     bottom="-531"
+     height="508"
+     label="VapourStorm"
+     layout="topleft"
+     left="1"
+     name="VapourStormTab"
+     top="23"
+     width="516">
+        <check_box
+         control_name="VapourStormScaleLinksetsNonUniform"
+         follows="left|top"
+         height="16"
+         label="Enable non-uniform scaling (stretching) for linksets"
+         layout="topleft"
+         left="10"
+         name="VapourStormScaleLinksetsNonUniformSetting"
+         tool_tip="If enabled, allows scaling linksets on a single or two axes using the scale tool."
+         top="10"
+         width="400" />
+    </panel>
+
 </tab_container>
 </panel>
