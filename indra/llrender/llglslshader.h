@@ -195,6 +195,7 @@ public:
     bool createShader();
     bool attachFragmentObject(std::string object);
     bool attachVertexObject(std::string object);
+    bool attachComputeObject(std::string object);
     void attachObject(GLuint object);
     void attachObjects(GLuint* objects = NULL, S32 count = 0);
     bool mapAttributes();

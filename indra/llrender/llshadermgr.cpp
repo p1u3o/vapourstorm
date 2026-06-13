@@ -577,8 +577,12 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32 & shader_lev
     {
         if (major_version >= 4)
         {
+            if (type == GL_COMPUTE_SHADER)
+            {
+                shader_code_text[shader_code_count++] = strdup("#version 430 core\n");
+            }
             //set version to 400 or 420
-            if (minor_version >= 20)
+            else if (minor_version >= 20)
             {
                 shader_code_text[shader_code_count++] = strdup("#version 420\n");
             }
@@ -625,6 +629,10 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32 & shader_lev
     if (type == GL_FRAGMENT_SHADER)
     {
         extra_code_text[extra_code_count++] = strdup("#define FRAGMENT_SHADER 1\n");
+    }
+    else if (type == GL_COMPUTE_SHADER)
+    {
+        extra_code_text[extra_code_count++] = strdup("#define COMPUTE_SHADER 1\n");
     }
     else
     {
@@ -934,6 +942,9 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32 & shader_lev
         // Add shader file to map
         if (type == GL_VERTEX_SHADER) {
             mVertexShaderObjects[filename] = ret;
+        }
+        else if (type == GL_COMPUTE_SHADER) {
+            mComputeShaderObjects[filename] = ret;
         }
         else if (type == GL_FRAGMENT_SHADER) {
             mFragmentShaderObjects[filename] = ret;

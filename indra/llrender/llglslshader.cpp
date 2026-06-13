@@ -616,6 +616,28 @@ bool LLGLSLShader::attachFragmentObject(std::string object_path)
     }
 }
 
+bool LLGLSLShader::attachComputeObject(std::string object_path)
+{
+    if(mUsingBinaryProgram)
+        return true;
+
+    if (LLShaderMgr::instance()->mComputeShaderObjects.count(object_path) > 0)
+    {
+        stop_glerror();
+        glAttachShader(mProgramObject, LLShaderMgr::instance()->mComputeShaderObjects[object_path]);
+#if DEBUG_SHADER_INCLUDES
+        dumpAttachObject("attachComputeObject", mProgramObject, object_path);
+#endif // DEBUG_SHADER_INCLUDES
+        stop_glerror();
+        return true;
+    }
+    else
+    {
+        LL_SHADER_LOADING_WARNS() << "Attempting to attach shader object: '" << object_path << "' that hasn't been compiled." << LL_ENDL;
+        return false;
+    }
+}
+
 void LLGLSLShader::attachObject(GLuint object)
 {
     if(mUsingBinaryProgram)

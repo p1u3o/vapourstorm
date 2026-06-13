@@ -392,6 +392,7 @@ public:
     // Map of shader names to compiled
     std::map<std::string, GLuint> mVertexShaderObjects;
     std::map<std::string, GLuint> mFragmentShaderObjects;
+    std::map<std::string, GLuint> mComputeShaderObjects;
 
     //global (reserved slot) shader parameters
     std::vector<std::string> mReservedAttribs;

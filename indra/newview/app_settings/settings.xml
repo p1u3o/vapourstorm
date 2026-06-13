@@ -13861,6 +13861,28 @@ Change of this parameter will affect the layout of buttons in notification toast
         <key>Value</key>
         <real>0.4</real>
     </map>
+    <key>RenderFSRMode</key>
+    <map>
+        <key>Comment</key>
+        <string>AMD FidelityFX Super Resolution Mode (0 = Off, 1 = Ultra Quality, 2 = Quality, 3 = Balanced, 4 = Performance)</string>
+        <key>Persist</key>
+        <integer>1</integer>
+        <key>Type</key>
+        <string>U32</string>
+        <key>Value</key>
+        <integer>0</integer>
+    </map>
+    <key>RenderFSRSharpness</key>
+    <map>
+        <key>Comment</key>
+        <string>FSR RCAS Sharpness level (0.0(max) - 1.0(off))</string>
+        <key>Persist</key>
+        <integer>1</integer>
+        <key>Type</key>
+        <string>F32</string>
+        <key>Value</key>
+        <real>0.2</real>
+    </map>
     <key>RenderTonemapMix</key>
     <map>
         <key>Comment</key>

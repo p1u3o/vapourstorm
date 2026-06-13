@@ -159,6 +159,7 @@ public:
     void gammaCorrect(LLRenderTarget* src, LLRenderTarget* dst);
     void generateGlow(LLRenderTarget* src);
     void applyCAS(LLRenderTarget* src, LLRenderTarget* dst);
+    void applyFSR(LLRenderTarget* src, LLRenderTarget* dst);
     void applyFXAA(LLRenderTarget* src, LLRenderTarget* dst);
     void generateSMAABuffers(LLRenderTarget* src);
     void applySMAA(LLRenderTarget* src, LLRenderTarget* dst);
@@ -768,6 +769,9 @@ public:
     LLRenderTarget          mFXAAMap;
     LLRenderTarget          mSMAABlendBuffer;
 
+    // Dedicated scratch target for FSR EASU/RCAS compute passes
+    LLRenderTarget          mFSRMap;
+
     // render ui to buffer target
     LLRenderTarget          mUIScreen;
 
@@ -1080,12 +1084,14 @@ public:
     static bool WindLightUseAtmosShaders;
     static bool RenderDeferred;
     static F32 RenderDeferredSunWash;
-    static U32 RenderFSAAType;
-    static U32 RenderResolutionDivisor;
+    static S32              RenderFSAAType;
+    static U32              RenderResolutionDivisor;
 // [SL:KB] - Patch: Settings-RenderResolutionMultiplier | Checked: Catznip-5.4
-    static F32 RenderResolutionMultiplier;
+    static F32              RenderResolutionMultiplier;
 // [/SL:KB]
-    static bool RenderUIBuffer;
+    static S32              RenderFSRMode;
+    static F32              RenderFSRSharpness;
+    static bool             RenderUIBuffer;
     static S32 RenderShadowDetail;
     static S32 RenderShadowSplits;
     static bool RenderDeferredSSAO;

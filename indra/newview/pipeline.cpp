@@ -143,6 +143,20 @@
 #endif
 #define A_CPU 1
 #include "app_settings/shaders/class1/deferred/CASF.glsl" // This is also C++
+#include "ffx_fsr1.h"
+
+typedef AU1 AU4[4];
+
+struct FSRConstants {
+    AU4 const0;
+    AU4 const1;
+    AU4 const2;
+    AU4 const3;
+    AU4 const0RCAS;
+    AU4 extents;
+    AU4 sample;
+};
+
 
 extern bool gSnapshot;
 bool gShiftFrame = false;
@@ -151,11 +165,13 @@ bool gShiftFrame = false;
 bool LLPipeline::WindLightUseAtmosShaders;
 bool LLPipeline::RenderDeferred;
 F32 LLPipeline::RenderDeferredSunWash;
-U32 LLPipeline::RenderFSAAType;
+S32 LLPipeline::RenderFSAAType;
 U32 LLPipeline::RenderResolutionDivisor;
 // [SL:KB] - Patch: Settings-RenderResolutionMultiplier | Checked: Catznip-5.4
 F32 LLPipeline::RenderResolutionMultiplier;
 // [/SL:KB]
+S32 LLPipeline::RenderFSRMode;
+F32 LLPipeline::RenderFSRSharpness;
 bool LLPipeline::RenderUIBuffer;
 S32 LLPipeline::RenderShadowDetail;
 S32 LLPipeline::RenderShadowSplits;
@@ -580,6 +596,8 @@ void LLPipeline::init()
     // DEPRECATED -- connectRefreshCachedSettingsSafe("RenderDeferred");
     connectRefreshCachedSettingsSafe("RenderDeferredSunWash");
     connectRefreshCachedSettingsSafe("RenderFSAAType");
+    connectRefreshCachedSettingsSafe("RenderFSRMode");
+    connectRefreshCachedSettingsSafe("RenderFSRSharpness");
     connectRefreshCachedSettingsSafe("RenderResolutionDivisor");
 // [SL:KB] - Patch: Settings-RenderResolutionMultiplier | Checked: Catznip-5.4
     connectRefreshCachedSettingsSafe("RenderResolutionMultiplier");
@@ -958,6 +976,24 @@ bool LLPipeline::allocateScreenBufferInternal(U32 resX, U32 resY)
     }
 // [/SL:KB]
 
+    U32 postResX = resX;
+    U32 postResY = resY;
+
+    if (RenderFSRMode > 0)
+    {
+        F32 fsr_scale = 1.0f;
+        switch(RenderFSRMode)
+        {
+            case 1: fsr_scale = 1.3f; break; // Ultra Quality
+            case 2: fsr_scale = 1.5f; break; // Quality
+            case 3: fsr_scale = 1.7f; break; // Balanced
+            case 4: fsr_scale = 2.0f; break; // Performance
+            default: break;
+        }
+        resX = (GLuint)(resX / fsr_scale);
+        resY = (GLuint)(resY / fsr_scale);
+    }
+
     S32 shadow_detail = RenderShadowDetail;
     bool ssao = RenderDeferredSSAO;
 
@@ -991,7 +1027,7 @@ bool LLPipeline::allocateScreenBufferInternal(U32 resX, U32 resY)
         if (RenderUIBuffer)
         {
             LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("UIBuffer"); // <FS:Beq/> improve Tracy scoping 
-            if (!mUIScreen.allocate(resX, resY, GL_RGBA))
+            if (!mUIScreen.allocate(postResX, postResY, GL_RGBA))
             {
                 return false;
             }
@@ -1000,11 +1036,11 @@ bool LLPipeline::allocateScreenBufferInternal(U32 resX, U32 resY)
         if (RenderFSAAType > 0)
         {
             LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("FSAABuffer"); // <FS:Beq/> improve Tracy scoping 
-            if (!mFXAAMap.allocate(resX, resY, GL_RGBA)) return false;
+            if (!mFXAAMap.allocate(postResX, postResY, GL_RGBA)) return false;
             if (RenderFSAAType == 2)
             {
                 LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("SMAABuffer"); // <FS:Beq/> improve Tracy scoping 
-                if (!mSMAABlendBuffer.allocate(resX, resY, GL_RGBA, false)) return false;
+                if (!mSMAABlendBuffer.allocate(postResX, postResY, GL_RGBA, false)) return false;
             }
         }
         else
@@ -1027,8 +1063,11 @@ bool LLPipeline::allocateScreenBufferInternal(U32 resX, U32 resY)
         }
 
         {LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("mPostMapBuffer"); // <FS:Beq/> improve Tracy scoping 
-        mPostPingMap.allocate(resX, resY, GL_RGBA);
-        mPostPongMap.allocate(resX, resY, GL_RGBA);
+        const bool use_fsr = RenderFSRMode > 0 && gFSREASUProgram.isComplete() && gFSRRCASProgram.isComplete();
+        const U32 post_format = use_fsr ? GL_RGBA16F : GL_RGBA;
+        mPostPingMap.allocate(postResX, postResY, post_format);
+        mPostPongMap.allocate(postResX, postResY, post_format);
+        mFSRMap.allocate(postResX, postResY, GL_RGBA16F);
         } // <FS:Beq/> improve Tracy scoping 
         // The water exclusion mask needs its own depth buffer so we can take care of the problem of multiple water planes.
         // Should we ever make water not just a plane, it also aids with that as well as the water planes will be rendered into the mask.
@@ -1264,6 +1303,9 @@ void LLPipeline::refreshCachedSettings()
     CameraDoFResScale = gSavedSettings.getF32("CameraDoFResScale");
     RenderVignette = gSavedSettings.getVector3("FSRenderVignette"); // <FS:Beq/> redo the vignette
 
+    RenderFSRMode = (S32)gSavedSettings.getU32("RenderFSRMode");
+    RenderFSRSharpness = gSavedSettings.getF32("RenderFSRSharpness");
+
     RenderAutoHideSurfaceAreaLimit = gSavedSettings.getF32("RenderAutoHideSurfaceAreaLimit");
     RenderScreenSpaceReflections = gSavedSettings.getBOOL("RenderScreenSpaceReflections");
     RenderScreenSpaceReflectionIterations = gSavedSettings.getS32("RenderScreenSpaceReflectionIterations");
@@ -1331,6 +1373,7 @@ void LLPipeline::releaseGLBuffers()
 
     mPostPingMap.release();
     mPostPongMap.release();
+    mFSRMap.release();
 
     mFXAAMap.release();
 
@@ -8062,6 +8105,104 @@ void LLPipeline::generateGlow(LLRenderTarget* src)
     }
 }
 
+void LLPipeline::applyFSR(LLRenderTarget* src, LLRenderTarget* dst)
+{
+    LL_PROFILE_GPU_ZONE("FSR");
+    if (RenderFSRMode == 0 || !gFSREASUProgram.isComplete() || !gFSRRCASProgram.isComplete())
+    {
+        gPipeline.copyRenderTarget(src, dst);
+        return;
+    }
+
+    FSRConstants fsrData = {};
+    memset(&fsrData, 0, sizeof(FSRConstants));
+    
+    U32 inputWidth = src->getWidth();
+    U32 inputHeight = src->getHeight();
+    U32 outputWidth = dst->getWidth();
+    U32 outputHeight = dst->getHeight();
+
+    FsrEasuCon(fsrData.const0, fsrData.const1, fsrData.const2, fsrData.const3,
+               (AF1)inputWidth, (AF1)inputHeight,
+               (AF1)inputWidth, (AF1)inputHeight,
+               (AF1)outputWidth, (AF1)outputHeight);
+               
+    memcpy(fsrData.const0RCAS, fsrData.const0, sizeof(fsrData.const0));
+    FsrRcasCon(fsrData.const0RCAS, RenderFSRSharpness);
+    
+    // Explicitly set sample.x to 0 for now (linear processing)
+    fsrData.sample[0] = 0;
+
+    // We don't have a uniform buffer abstraction that perfectly matches this,
+    // but compute shaders can use uniform blocks or just regular uniforms.
+    // The shader expects a UBO at binding 0. We'll use glGenBuffers to upload it.
+    static GLuint fsrDataVbo = 0;
+    if (fsrDataVbo == 0)
+    {
+        glGenBuffers(1, &fsrDataVbo);
+    }
+    glBindBuffer(GL_UNIFORM_BUFFER, fsrDataVbo);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(fsrData), &fsrData, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+    // Run EASU
+    // We need an intermediate buffer for EASU output if we are also doing RCAS.
+    LLRenderTarget* scratch = &mFSRMap;
+    if (!scratch->isComplete() || scratch->getWidth() != outputWidth || scratch->getHeight() != outputHeight)
+    {
+        // Fallback only if the dedicated scratch target is unavailable.
+        scratch = dst;
+    }
+
+    // FSR EASU
+    {
+        gFSREASUProgram.bind();
+        glBindBufferBase(GL_UNIFORM_BUFFER, 0, fsrDataVbo);
+
+        // Bind input to texture unit 1 as expected by the shader's layout(binding=1)
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, src->getTexture());
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        glBindImageTexture(2, scratch->getTexture(), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA16F);
+
+        static const int threadGroupWorkRegionDim = 16;
+        int dispatchX = (outputWidth + (threadGroupWorkRegionDim - 1)) / threadGroupWorkRegionDim;
+        int dispatchY = (outputHeight + (threadGroupWorkRegionDim - 1)) / threadGroupWorkRegionDim;
+
+        glDispatchCompute(dispatchX, dispatchY, 1);
+        glMemoryBarrier(GL_ALL_BARRIER_BITS);
+        gFSREASUProgram.unbind();
+    }
+
+    // FSR RCAS
+    {
+        gFSRRCASProgram.bind();
+        glBindBufferBase(GL_UNIFORM_BUFFER, 0, fsrDataVbo);
+
+        // Bind intermediate to texture unit 1
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, scratch->getTexture());
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        glBindImageTexture(2, dst->getTexture(), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA16F);
+
+        static const int threadGroupWorkRegionDim = 16;
+        int dispatchX = (outputWidth + (threadGroupWorkRegionDim - 1)) / threadGroupWorkRegionDim;
+        int dispatchY = (outputHeight + (threadGroupWorkRegionDim - 1)) / threadGroupWorkRegionDim;
+
+        glDispatchCompute(dispatchX, dispatchY, 1);
+        glMemoryBarrier(GL_ALL_BARRIER_BITS);
+        gFSRRCASProgram.unbind();
+    }
+}
+
 void LLPipeline::applyCAS(LLRenderTarget* src, LLRenderTarget* dst)
 {
     static LLCachedControl<F32> cas_sharpness(gSavedSettings, "RenderCASSharpness", 0.4f);
@@ -8924,18 +9065,39 @@ void LLPipeline::renderFinalize()
 
         static LLCachedControl<F32> cas_sharpness(gSavedSettings, "RenderCASSharpness", 0.4f);
         bool apply_cas = cas_sharpness != 0.0f && gCASProgram.isComplete() && gCASLegacyGammaProgram.isComplete();
+        bool apply_fsr = RenderFSRMode > 0 && gFSREASUProgram.isComplete() && gFSRRCASProgram.isComplete();
 
-        tonemap(&mRT->screen, apply_cas ? &mRT->deferredLight : &mPostPingMap, !apply_cas);
+        LLRenderTarget* tonemap_dst = &mPostPingMap;
+        if (apply_fsr && apply_cas) tonemap_dst = &mWaterDis;
+        else if (apply_fsr || apply_cas) tonemap_dst = &mRT->deferredLight;
+
+        tonemap(&mRT->screen, tonemap_dst, !apply_cas);
+
+        LLRenderTarget* current_src = tonemap_dst;
 
         if (apply_cas)
         {
+            LLRenderTarget* cas_dst = apply_fsr ? &mRT->deferredLight : &mPostPingMap;
             // Gamma Corrects
-            applyCAS(&mRT->deferredLight, &mPostPingMap);
+            applyCAS(current_src, cas_dst);
+            current_src = cas_dst;
+        }
+
+        if (apply_fsr)
+        {
+            applyFSR(current_src, &mPostPingMap);
         }
     }
     else
     {
-        gammaCorrect(&mRT->screen, &mPostPingMap);
+        bool apply_fsr = RenderFSRMode > 0 && gFSREASUProgram.isComplete() && gFSRRCASProgram.isComplete();
+        LLRenderTarget* current_src = apply_fsr ? &mRT->deferredLight : &mPostPingMap;
+        gammaCorrect(&mRT->screen, current_src);
+
+        if (apply_fsr)
+        {
+            applyFSR(current_src, &mPostPingMap);
+        }
     }
 
     LLVertexBuffer::unbind();

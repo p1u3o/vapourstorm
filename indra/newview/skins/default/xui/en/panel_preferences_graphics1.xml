@@ -1061,6 +1061,77 @@
              value="3" />
         </combo_box>
 
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         height="12"
+         layout="topleft"
+         left="10"
+         name="fsr label"
+         top_pad="10"
+         width="220">
+          AMD FidelityFX Super Resolution:
+        </text>
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         height="12"
+         layout="topleft"
+         left="300"
+         name="fsr sharpness label"
+         top_delta="0"
+         width="220">
+          FSR Sharpness:
+        </text>
+        <combo_box
+         control_name="RenderFSRMode"
+         height="22"
+         initial_value="0"
+         follows="left|top"
+         layout="topleft"
+         left="10"
+         name="fsr mode"
+         top_pad="5"
+         width="130">
+            <combo_box.item
+             label="Disabled"
+             name="Disabled"
+             value="0" />
+            <combo_box.item
+             label="Ultra Quality"
+             name="Ultra Quality"
+             value="1" />
+            <combo_box.item
+             label="Quality"
+             name="Quality"
+             value="2" />
+            <combo_box.item
+             label="Balanced"
+             name="Balanced"
+             value="3" />
+            <combo_box.item
+             label="Performance"
+             name="Performance"
+             value="4" />
+        </combo_box>
+        <slider
+         control_name="RenderFSRSharpness"
+         decimal_digits="2"
+         follows="left|top"
+         height="15"
+         increment="0.1"
+         initial_value="0.2"
+         layout="topleft"
+         left="300"
+         max_val="1.0"
+         min_val="0.0"
+         name="FSRSharpness"
+         show_text="true"
+         top_delta="5"
+         width="130"/>
+
         <check_box
           control_name="FSLimitTextureVRAMUsage"
           height="16"

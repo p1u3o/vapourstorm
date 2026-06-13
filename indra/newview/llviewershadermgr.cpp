@@ -210,6 +210,8 @@ LLGLSLShader            gFXAAProgram[4];
 LLGLSLShader            gSMAAEdgeDetectProgram[4];
 LLGLSLShader            gSMAABlendWeightsProgram[4];
 LLGLSLShader            gSMAANeighborhoodBlendProgram[4];
+LLGLSLShader            gFSREASUProgram;
+LLGLSLShader            gFSRRCASProgram;
 LLGLSLShader            gCASProgram;
 LLGLSLShader            gCASLegacyGammaProgram;
 LLGLSLShader            gDeferredPostNoDoFProgram;
@@ -1168,6 +1170,8 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             gSMAABlendWeightsProgram[i].unload();
             gSMAANeighborhoodBlendProgram[i].unload();
         }
+        gFSREASUProgram.unload();
+        gFSRRCASProgram.unload();
         gCASProgram.unload();
         gCASLegacyGammaProgram.unload();
         gEnvironmentMapProgram.unload();
@@ -2767,6 +2771,35 @@ bool LLViewerShaderMgr::loadShadersDeferred()
                 gSMAABlendWeightsProgram[i].unload();
                 gSMAANeighborhoodBlendProgram[i].unload();
             }
+        }
+    }
+
+    if (success && gGLManager.mGLVersion >= 4.3f)
+    {
+        gFSREASUProgram.mName = "FSR EASU Compute Shader";
+        gFSREASUProgram.mFeatures.hasSrgb = true;
+        gFSREASUProgram.mFeatures.attachNothing = true;
+        gFSREASUProgram.mShaderFiles.clear();
+        gFSREASUProgram.mShaderFiles.push_back(make_pair("deferred/fsr_easu.compute.glsl", GL_COMPUTE_SHADER));
+        gFSREASUProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        success = gFSREASUProgram.createShader();
+        if (!success)
+        {
+            LL_WARNS() << "Failed to create shader '" << gFSREASUProgram.mName << "', disabling!" << LL_ENDL;
+            success = true;
+        }
+
+        gFSRRCASProgram.mName = "FSR RCAS Compute Shader";
+        gFSRRCASProgram.mFeatures.hasSrgb = true;
+        gFSRRCASProgram.mFeatures.attachNothing = true;
+        gFSRRCASProgram.mShaderFiles.clear();
+        gFSRRCASProgram.mShaderFiles.push_back(make_pair("deferred/fsr_rcas.compute.glsl", GL_COMPUTE_SHADER));
+        gFSRRCASProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        success = gFSRRCASProgram.createShader();
+        if (!success)
+        {
+            LL_WARNS() << "Failed to create shader '" << gFSRRCASProgram.mName << "', disabling!" << LL_ENDL;
+            success = true;
         }
     }
 
