@@ -187,6 +187,69 @@ namespace {
     };
 
 
+    class RecordToShaderLog : public LLError::Recorder
+    {
+    public:
+        RecordToShaderLog(const std::string& filename):
+            mName(filename)
+        {
+            this->showMultiline(true);
+            mFile.open(filename.c_str(), std::ios_base::out | std::ios_base::app);
+            if (!mFile)
+            {
+                LL_INFOS() << "Error setting shader log file to " << filename << LL_ENDL;
+            }
+            else
+            {
+                if (!LLError::getAlwaysFlush())
+                {
+                    mFile.sync_with_stdio(false);
+                }
+            }
+        }
+
+        ~RecordToShaderLog()
+        {
+            mFile.close();
+        }
+
+        virtual bool enabled() override
+        {
+#ifdef LL_RELEASE_FOR_DOWNLOAD
+            return 1;
+#else
+            return LLError::getEnabledLogTypesMask() & 0x02;
+#endif
+        }
+
+        bool okay() const { return mFile.good(); }
+
+        std::string getFilename() const { return mName; }
+
+        virtual void recordMessage(LLError::ELevel level,
+                                    const std::string& message) override
+        {
+            if (message.find("#ShaderLoading#") != std::string::npos ||
+                message.find("#ShaderMgr#") != std::string::npos)
+            {
+                LL_PROFILE_ZONE_SCOPED_CATEGORY_LOGGING;
+                if (LLError::getAlwaysFlush())
+                {
+                    mFile << message << std::endl;
+                }
+                else
+                {
+                    mFile << message << "\n";
+                }
+            }
+        }
+
+    private:
+        const std::string mName;
+        llofstream mFile;
+    };
+
+
     class RecordToStderr : public LLError::Recorder
     {
     public:
@@ -1149,6 +1212,21 @@ namespace LLError
             if (recordToFile->okay())
             {
                 addRecorder(recordToFile);
+            }
+        }
+    }
+
+    void logToShaderFile(const std::string& file_name)
+    {
+        // remove any previous Recorder filling this role
+        removeRecorder<RecordToShaderLog>();
+
+        if (!file_name.empty())
+        {
+            std::shared_ptr<RecordToShaderLog> recordToShaderLog(new RecordToShaderLog(file_name));
+            if (recordToShaderLog->okay())
+            {
+                addRecorder(recordToShaderLog);
             }
         }
     }

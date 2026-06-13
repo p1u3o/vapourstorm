@@ -577,6 +577,6 @@ void set_last_projection(const glm::mat4& mat);
 // glh compat
 glm::vec3 mul_mat4_vec3(const glm::mat4& mat, const glm::vec3& vec);
 
-#define LL_SHADER_LOADING_WARNS(...) LL_WARNS()
+#define LL_SHADER_LOADING_WARNS(...) LL_WARNS("ShaderLoading", ##__VA_ARGS__)
 
 #endif

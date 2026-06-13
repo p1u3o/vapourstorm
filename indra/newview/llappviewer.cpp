@@ -2777,6 +2777,7 @@ void LLAppViewer::initLoggingAndGetLastDuration()
         LLUUID uid;
         uid.generate();
         LLError::logToFile(gDirUtilp->getDumpLogsDirPath(uid.asString() + ".log"));
+        LLError::logToShaderFile(gDirUtilp->getDumpLogsDirPath(uid.asString() + "_shader.log"));
     }
     else
     {
@@ -2837,8 +2838,15 @@ void LLAppViewer::initLoggingAndGetLastDuration()
         // Rename current log file to ".old"
         LLFile::rename(log_file, old_log_file);
 
+        // Rename current shader log file to ".old"
+        std::string old_shader_log_file = gDirUtilp->getExpandedFilename(LL_PATH_LOGS, "shader.old");
+        LLFile::remove(old_shader_log_file);
+        std::string shader_log_file = gDirUtilp->getExpandedFilename(LL_PATH_LOGS, "shader.log");
+        LLFile::rename(shader_log_file, old_shader_log_file);
+
         // Set the log file to SecondLife.log
         LLError::logToFile(log_file);
+        LLError::logToShaderFile(shader_log_file);
         LL_INFOS() << "Started logging to " << log_file << LL_ENDL;
         if (!duration_log_msg.empty())
         {

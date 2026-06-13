@@ -28,6 +28,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "llviewercontrol.h"
+#include "lldir.h"
 
 // Library includes
 #include "llwindow.h"   // getGamma()
@@ -641,6 +642,12 @@ static bool handleLogFileChanged(const LLSD& newvalue)
     std::string log_filename = newvalue.asString();
     LLFile::remove(log_filename);
     LLError::logToFile(log_filename);
+
+    std::string dir = gDirUtilp->getDirName(log_filename);
+    std::string shader_log_filename = dir + gDirUtilp->getDirDelimiter() + "shader.log";
+    LLFile::remove(shader_log_filename);
+    LLError::logToShaderFile(shader_log_filename);
+
     LL_INFOS() << "Logging switched to " << log_filename << LL_ENDL;
     return true;
 }

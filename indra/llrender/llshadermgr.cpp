@@ -459,6 +459,52 @@ void LLShaderMgr::dumpObjectLog(GLuint ret, bool warns, const std::string& filen
     }
  }
 
+static bool readShaderFile(const std::string& filepath, std::vector<std::string>& lines)
+{
+    LLFILE* file = LLFile::fopen(filepath, "r");
+    if (!file)
+    {
+        return false;
+    }
+    GLchar buff[1024];
+    while (NULL != fgets((char*)buff, sizeof(buff), file))
+    {
+        std::string line(buff);
+        size_t include_pos = line.find("#include");
+        if (include_pos != std::string::npos)
+        {
+            size_t comment_pos = line.find("//");
+            if (comment_pos == std::string::npos || comment_pos > include_pos)
+            {
+                size_t first_quote = line.find('"', include_pos);
+                if (first_quote != std::string::npos)
+                {
+                    size_t second_quote = line.find('"', first_quote + 1);
+                    if (second_quote != std::string::npos)
+                    {
+                        std::string include_filename = line.substr(first_quote + 1, second_quote - first_quote - 1);
+                        std::string dir = filepath;
+                        size_t last_slash = dir.find_last_of("/\\");
+                        if (last_slash != std::string::npos)
+                        {
+                            dir = dir.substr(0, last_slash);
+                        }
+                        std::string include_filepath = dir + gDirUtilp->getDirDelimiter() + include_filename;
+                        if (!readShaderFile(include_filepath, lines))
+                        {
+                            LL_WARNS("ShaderLoading") << "Failed to include shader file: " << include_filepath << LL_ENDL;
+                        }
+                        continue;
+                    }
+                }
+            }
+        }
+        lines.push_back(line);
+    }
+    fclose(file);
+    return true;
+}
+
 GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32 & shader_level, GLenum type, std::map<std::string, std::string>* defines, S32 texture_index_channels)
 {
 
@@ -776,10 +822,29 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32 & shader_lev
     bool touched = false;
 #endif
 
-    while(NULL != fgets((char *)buff, 1024, file)
-          && shader_code_count < (LL_ARRAY_SIZE(shader_code_text) - LL_ARRAY_SIZE(extra_code_text)))
+    fclose(file);
+    file = NULL;
+
+    std::vector<std::string> lines;
+    if (!readShaderFile(open_file_name, lines))
+    {
+        LL_WARNS("ShaderLoading") << "GLSL Shader file failed to load: " << open_file_name << LL_ENDL;
+        return 0;
+    }
+
+    for (size_t i = 0; i < lines.size() && shader_code_count < (LL_ARRAY_SIZE(shader_code_text) - LL_ARRAY_SIZE(extra_code_text)); ++i)
     {
         file_lines_count++;
+        const std::string& line = lines[i];
+        if (line.size() >= sizeof(buff))
+        {
+            strncpy((char*)buff, line.c_str(), sizeof(buff) - 1);
+            buff[sizeof(buff) - 1] = '\0';
+        }
+        else
+        {
+            strcpy((char*)buff, line.c_str());
+        }
 
         bool extra_block_area_found = NULL != strstr((const char*)buff, "[EXTRA_CODE_HERE]");
 
@@ -853,13 +918,16 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32 & shader_lev
     }
 
 #if TOUCH_SHADERS
-    if (!touched)
+    if (!touched && file)
     {
         fprintf(file, "\n%s\n", marker);
     }
 #endif
 
-    fclose(file);
+    if (file)
+    {
+        fclose(file);
+    }
 
     //create shader object
     GLuint ret = glCreateShader(type);
